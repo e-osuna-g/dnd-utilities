@@ -129,7 +129,7 @@ export function TokenBorderSelector({ selected }: TokenBorderSelectorProps) {
                     <span class="truncate">{selectedBorder.name}</span>
                   </>
                 )
-                : <span class="text-zinc-400">None — procedural ring</span>}
+                : <span class="text-zinc-400">None — Custom ring</span>}
             </button>
             {selectedBorder && (
               <button

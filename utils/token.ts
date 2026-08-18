@@ -18,7 +18,7 @@ export interface TokenConfig {
   offsetY: number;
   /** Extra magnification past cover-fit, >= 1. */
   zoom: number;
-  /** URL of the selected border PNG, or null for the procedural ring. */
+  /** URL of the selected border PNG, or null for the custom ring. */
   borderUrl?: string | null;
   /** Loaded border image (set by the caller once the URL has finished loading). */
   border?: HTMLImageElement | null;
