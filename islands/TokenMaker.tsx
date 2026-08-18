@@ -290,9 +290,13 @@ export default function TokenMaker() {
                   onChange={(v) => hexRotation.value = v}
                 />
               )}
+            </>
+          )}
 
-              <RingColorPicker ringColor={ringColor} />
+          <RingColorPicker ringColor={ringColor} />
 
+          {!borderUrl.value && (
+            <>
               <RangeControl
                 label="Ring thickness"
                 min={0}

@@ -243,6 +243,70 @@ function maskForBorder(
   return canvas;
 }
 
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+/**
+ * Recolors a border to the given tint color while preserving its brightness/
+ * shading. Resulting RGB is the tint scaled by the border's luminance, so light
+ * parts approach the tint color and dark parts fall toward black. The border's
+ * alpha (silhouette + anti-aliased edges) is kept. Cached per url+color+size.
+ */
+const tintedCache = new Map<string, HTMLCanvasElement>();
+const TINTED_CACHE_MAX = 40;
+
+function tintedBorder(
+  border: HTMLImageElement,
+  color: string,
+  size: number,
+): HTMLCanvasElement {
+  const key = `${border.src}@${color}@${size}`;
+  const cached = tintedCache.get(key);
+  if (cached) return cached;
+
+  const tint = hexToRgb(color);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const scale = Math.max(
+    size / border.naturalWidth,
+    size / border.naturalHeight,
+  );
+  const bw = border.naturalWidth * scale;
+  const bh = border.naturalHeight * scale;
+  ctx.drawImage(border, (size - bw) / 2, (size - bh) / 2, bw, bh);
+
+  const img = ctx.getImageData(0, 0, size, size);
+  const px = img.data;
+  const n = size * size;
+  const THRESH = 20;
+  for (let i = 0; i < n; i++) {
+    const a = px[i * 4 + 3];
+    if (a <= THRESH) {
+      px[i * 4 + 3] = 0;
+      continue;
+    }
+    const l = (0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] +
+      0.114 * px[i * 4 + 2]) / 255;
+    px[i * 4] = tint.r * l;
+    px[i * 4 + 1] = tint.g * l;
+    px[i * 4 + 2] = tint.b * l;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  tintedCache.set(key, canvas);
+  if (tintedCache.size > TINTED_CACHE_MAX) {
+    const oldest = tintedCache.keys().next().value;
+    if (oldest !== undefined) tintedCache.delete(oldest);
+  }
+  return canvas;
+}
+
 /**
  * Renders a single token into the given context. The canvas is cleared first, so
  * every call produces a fresh token. Corners outside the contour stay transparent.
@@ -304,13 +368,7 @@ export function renderToken(
     ctx.globalCompositeOperation = "destination-in";
     ctx.drawImage(maskForBorder(border, size), 0, 0);
     ctx.restore();
-    const scale = Math.max(
-      size / border.naturalWidth,
-      size / border.naturalHeight,
-    );
-    const bw = border.naturalWidth * scale;
-    const bh = border.naturalHeight * scale;
-    ctx.drawImage(border, (size - bw) / 2, (size - bh) / 2, bw, bh);
+    ctx.drawImage(tintedBorder(border, config.ringColor, size), 0, 0);
   }
 }
 
