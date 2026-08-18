@@ -212,7 +212,7 @@ function maskForBorder(
   const img = ctx.getImageData(0, 0, size, size);
   const px = img.data;
   const n = size * size;
-  const THRESH = 200;
+  const THRESH = 150;
   const opaque = new Uint8Array(n);
   const cut = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
