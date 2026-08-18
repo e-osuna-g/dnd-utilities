@@ -7,6 +7,9 @@ export interface TokenConfig {
   inset: number;
   hairlineEnabled: boolean;
   hairlineColor: string;
+  /** Fill color shown behind the image when it is panned past its cover area. */
+  backdropEnabled: boolean;
+  backdropColor: string;
   /** Degrees of hex rotation, 0 = flat-top. Ignored for other shapes. */
   hexRotation: number;
   /** Horizontal image position as a fraction of the overflow, clamped to [-1, 1]. */
@@ -129,7 +132,8 @@ function shapeBounds(
 /**
  * Geometry of the cover-fitted image for a given token config/resolution.
  * `excess` is how much larger the image is than the clip box on each axis;
- * offset units map to pixels via `offset * excess / 2`.
+ * `maxShift` is the maximum pixel shift per axis at full pan (the cover-fit
+ * excess plus an extra `PAN_MARGIN` fraction of the displayed image).
  */
 export interface TokenGeometry {
   boxW: number;
@@ -138,7 +142,12 @@ export interface TokenGeometry {
   drawH: number;
   excessX: number;
   excessY: number;
+  maxShiftX: number;
+  maxShiftY: number;
 }
+
+/** Extra pan distance past cover-fit alignment, as a fraction of the displayed image. */
+export const PAN_MARGIN = 0.2;
 
 export function getImageGeometry(
   image: HTMLImageElement,
@@ -158,13 +167,17 @@ export function getImageGeometry(
   const scale = Math.max(boxW / imgW, boxH / imgH) * (config.zoom ?? 1);
   const drawW = imgW * scale;
   const drawH = imgH * scale;
+  const excessX = drawW - boxW;
+  const excessY = drawH - boxH;
   return {
     boxW,
     boxH,
     drawW,
     drawH,
-    excessX: drawW - boxW,
-    excessY: drawH - boxH,
+    excessX,
+    excessY,
+    maxShiftX: excessX / 2 + PAN_MARGIN * drawW,
+    maxShiftY: excessY / 2 + PAN_MARGIN * drawH,
   };
 }
 
@@ -328,8 +341,14 @@ export function renderToken(
     ctx.save();
     ctx.beginPath();
     traceShape(ctx, config.shape, cx, cy, outerHalf, config.hexRotation);
-    ctx.fillStyle = config.ringColor;
-    ctx.fill();
+    if (innerHalf > 0) {
+      traceShape(ctx, config.shape, cx, cy, innerHalf, config.hexRotation);
+      ctx.fillStyle = config.ringColor;
+      ctx.fill("evenodd");
+    } else {
+      ctx.fillStyle = config.ringColor;
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -339,6 +358,10 @@ export function renderToken(
     traceShape(ctx, config.shape, cx, cy, innerHalf, config.hexRotation);
     ctx.clip();
   }
+  if (config.backdropEnabled) {
+    ctx.fillStyle = config.backdropColor;
+    ctx.fillRect(0, 0, size, size);
+  }
   const g = getImageGeometry(image, {
     ...config,
     inset: border ? 0 : config.inset,
@@ -346,8 +369,8 @@ export function renderToken(
   if (g && g.drawW > 0 && g.drawH > 0) {
     const ox = Math.max(-1, Math.min(1, config.offsetX ?? 0));
     const oy = Math.max(-1, Math.min(1, config.offsetY ?? 0));
-    const drawX = cx - g.drawW / 2 + (ox * g.excessX) / 2;
-    const drawY = cy - g.drawH / 2 + (oy * g.excessY) / 2;
+    const drawX = cx - g.drawW / 2 + (ox * g.maxShiftX);
+    const drawY = cy - g.drawH / 2 + (oy * g.maxShiftY);
     ctx.drawImage(image, drawX, drawY, g.drawW, g.drawH);
   }
   ctx.restore();

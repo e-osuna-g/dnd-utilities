@@ -11,6 +11,7 @@ import { UploadZone } from "../components/UploadZone.tsx";
 import { ShapeSelector } from "../components/ShapeSelector.tsx";
 import { RingColorPicker } from "../components/RingColorPicker.tsx";
 import { HairlineControl } from "../components/HairlineControl.tsx";
+import { BackdropControl } from "../components/BackdropControl.tsx";
 import { RangeControl } from "../components/RangeControl.tsx";
 import { TokenBorderSelector } from "../components/TokenBorderSelector.tsx";
 import { PREVIEW_SIZE, PreviewPanel } from "../components/PreviewPanel.tsx";
@@ -26,6 +27,8 @@ export default function TokenMaker() {
   const inset = useSignal(0.12);
   const hairlineEnabled = useSignal(false);
   const hairlineColor = useSignal("#f8fafc");
+  const backdropEnabled = useSignal(false);
+  const backdropColor = useSignal("#101010");
   const hexRotation = useSignal(0);
   const offsetX = useSignal(0);
   const offsetY = useSignal(0);
@@ -66,6 +69,8 @@ export default function TokenMaker() {
       inset: hasBorder ? 0 : inset.value,
       hairlineEnabled: hairlineEnabled.value,
       hairlineColor: hairlineColor.value,
+      backdropEnabled: backdropEnabled.value,
+      backdropColor: backdropColor.value,
       hexRotation: hexRotation.value,
       offsetY: offsetY.value,
       offsetX: offsetX.value,
@@ -294,6 +299,11 @@ export default function TokenMaker() {
           )}
 
           <RingColorPicker ringColor={ringColor} />
+
+          <BackdropControl
+            enabled={backdropEnabled}
+            color={backdropColor}
+          />
 
           {!borderUrl.value && (
             <>

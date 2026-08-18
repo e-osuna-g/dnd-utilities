@@ -46,16 +46,16 @@ export function PreviewPanel(props: PreviewPanelProps) {
     if (!img) return;
     const g = getImageGeometry(img, props.getConfig(), PREVIEW_SIZE);
     if (!g) return;
-    if (g.excessX > 0) {
+    if (g.maxShiftX > 0) {
       props.offsetX.value = clamp(
-        props.offsetX.value + (2 * dx) / g.excessX,
+        props.offsetX.value + dx / g.maxShiftX,
         -1,
         1,
       );
     }
-    if (g.excessY > 0) {
+    if (g.maxShiftY > 0) {
       props.offsetY.value = clamp(
-        props.offsetY.value + (2 * dy) / g.excessY,
+        props.offsetY.value + dy / g.maxShiftY,
         -1,
         1,
       );
