@@ -15,6 +15,31 @@ export interface TokenConfig {
   offsetY: number;
   /** Extra magnification past cover-fit, >= 1. */
   zoom: number;
+  /** URL of the selected border PNG, or null for the procedural ring. */
+  borderUrl?: string | null;
+  /** Loaded border image (set by the caller once the URL has finished loading). */
+  border?: HTMLImageElement | null;
+}
+
+const borderCache = new Map<string, Promise<HTMLImageElement>>();
+
+/** Loads a border PNG with CORS enabled, caching the result so renders don't refetch. */
+export function loadBorderImage(url: string): Promise<HTMLImageElement> {
+  let cached = borderCache.get(url);
+  if (!cached) {
+    cached = new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        borderCache.delete(url);
+        reject(new Error(`Could not load border image: ${url}`));
+      };
+      img.src = url;
+    });
+    borderCache.set(url, cached);
+  }
+  return cached;
 }
 
 interface Point {
@@ -144,6 +169,81 @@ export function getImageGeometry(
 }
 
 /**
+ * Builds an alpha mask of the border's silhouette at the given resolution. The
+ * mask keeps the opaque ring (with its own alpha for anti-aliased edges) plus the
+ * enclosed transparent center, and cuts the transparent regions that touch the
+ * canvas edge. Cached per border URL + size.
+ */
+const maskCache = new Map<string, HTMLCanvasElement>();
+
+function maskForBorder(
+  border: HTMLImageElement,
+  size: number,
+): HTMLCanvasElement {
+  const key = `${border.src}@${size}`;
+  const cached = maskCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const scale = Math.max(
+    size / border.naturalWidth,
+    size / border.naturalHeight,
+  );
+  const bw = border.naturalWidth * scale;
+  const bh = border.naturalHeight * scale;
+  ctx.drawImage(border, (size - bw) / 2, (size - bh) / 2, bw, bh);
+
+  const img = ctx.getImageData(0, 0, size, size);
+  const px = img.data;
+  const n = size * size;
+  const THRESH = 20;
+  const opaque = new Uint8Array(n);
+  const cut = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    opaque[i] = px[i * 4 + 3] > THRESH ? 1 : 0;
+  }
+
+  const stack: number[] = [];
+  const seed = (i: number) => {
+    if (!opaque[i] && !cut[i]) {
+      cut[i] = 1;
+      stack.push(i);
+    }
+  };
+  for (let x = 0; x < size; x++) {
+    seed(x);
+    seed((size - 1) * size + x);
+  }
+  for (let y = 0; y < size; y++) {
+    seed(y * size);
+    seed(y * size + size - 1);
+  }
+  while (stack.length > 0) {
+    const i = stack.pop()!;
+    const x = i % size;
+    const y = (i / size) | 0;
+    if (x > 0) seed(i - 1);
+    if (x < size - 1) seed(i + 1);
+    if (y > 0) seed(i - size);
+    if (y < size - 1) seed(i + size);
+  }
+
+  for (let i = 0; i < n; i++) {
+    const a = opaque[i] ? px[i * 4 + 3] : (cut[i] ? 0 : 255);
+    px[i * 4] = 255;
+    px[i * 4 + 1] = 255;
+    px[i * 4 + 2] = 255;
+    px[i * 4 + 3] = a;
+  }
+  ctx.putImageData(img, 0, 0);
+  maskCache.set(key, canvas);
+  return canvas;
+}
+
+/**
  * Renders a single token into the given context. The canvas is cleared first, so
  * every call produces a fresh token. Corners outside the contour stay transparent.
  */
@@ -157,20 +257,28 @@ export function renderToken(
   const cx = size / 2;
   const cy = size / 2;
   const outerHalf = size / 2;
-  const innerHalf = outerHalf * (1 - config.inset);
+  const border = config.border;
+  const innerHalf = border ? outerHalf : outerHalf * (1 - config.inset);
+
+  if (!border) {
+    ctx.save();
+    ctx.beginPath();
+    traceShape(ctx, config.shape, cx, cy, outerHalf, config.hexRotation);
+    ctx.fillStyle = config.ringColor;
+    ctx.fill();
+    ctx.restore();
+  }
 
   ctx.save();
-  ctx.beginPath();
-  traceShape(ctx, config.shape, cx, cy, outerHalf, config.hexRotation);
-  ctx.fillStyle = config.ringColor;
-  ctx.fill();
-  ctx.restore();
-
-  ctx.save();
-  ctx.beginPath();
-  traceShape(ctx, config.shape, cx, cy, innerHalf, config.hexRotation);
-  ctx.clip();
-  const g = getImageGeometry(image, config, size);
+  if (!border) {
+    ctx.beginPath();
+    traceShape(ctx, config.shape, cx, cy, innerHalf, config.hexRotation);
+    ctx.clip();
+  }
+  const g = getImageGeometry(image, {
+    ...config,
+    inset: border ? 0 : config.inset,
+  }, size);
   if (g && g.drawW > 0 && g.drawH > 0) {
     const ox = Math.max(-1, Math.min(1, config.offsetX ?? 0));
     const oy = Math.max(-1, Math.min(1, config.offsetY ?? 0));
@@ -180,7 +288,7 @@ export function renderToken(
   }
   ctx.restore();
 
-  if (config.hairlineEnabled && innerHalf > 0) {
+  if (!border && config.hairlineEnabled && innerHalf > 0) {
     ctx.save();
     ctx.beginPath();
     traceShape(ctx, config.shape, cx, cy, innerHalf, config.hexRotation);
@@ -189,6 +297,20 @@ export function renderToken(
     ctx.lineJoin = "round";
     ctx.stroke();
     ctx.restore();
+  }
+
+  if (border && border.naturalWidth > 0 && border.naturalHeight > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.drawImage(maskForBorder(border, size), 0, 0);
+    ctx.restore();
+    const scale = Math.max(
+      size / border.naturalWidth,
+      size / border.naturalHeight,
+    );
+    const bw = border.naturalWidth * scale;
+    const bh = border.naturalHeight * scale;
+    ctx.drawImage(border, (size - bw) / 2, (size - bh) / 2, bw, bh);
   }
 }
 

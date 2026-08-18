@@ -1,6 +1,7 @@
 import { useRef } from "preact/hooks";
 import { useSignal, useSignalEffect } from "@preact/signals";
 import {
+  loadBorderImage,
   renderToken,
   renderTokenCanvas,
   type TokenConfig,
@@ -11,6 +12,7 @@ import { ShapeSelector } from "../components/ShapeSelector.tsx";
 import { RingColorPicker } from "../components/RingColorPicker.tsx";
 import { HairlineControl } from "../components/HairlineControl.tsx";
 import { RangeControl } from "../components/RangeControl.tsx";
+import { TokenBorderSelector } from "../components/TokenBorderSelector.tsx";
 import { PREVIEW_SIZE, PreviewPanel } from "../components/PreviewPanel.tsx";
 import { ExportPanel } from "../components/ExportPanel.tsx";
 
@@ -29,23 +31,49 @@ export default function TokenMaker() {
   const offsetY = useSignal(0);
   const zoom = useSignal(1);
 
+  const borderUrl = useSignal<string | null>(null);
+  const borderImage = useSignal<HTMLImageElement | null>(null);
+
   const exportSize = useSignal(512);
   const feedback = useSignal("");
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const getConfig = (): TokenConfig => ({
-    shape: shape.value,
-    ringColor: ringColor.value,
-    inset: inset.value,
-    hairlineEnabled: hairlineEnabled.value,
-    hairlineColor: hairlineColor.value,
-    hexRotation: hexRotation.value,
-    offsetY: offsetY.value,
-    offsetX: offsetX.value,
-    zoom: zoom.value,
+  useSignalEffect(() => {
+    const url = borderUrl.value;
+    if (!url) {
+      borderImage.value = null;
+      return;
+    }
+    loadBorderImage(url).then((img) => {
+      if (borderUrl.value === url) borderImage.value = img;
+    }).catch(() => {
+      if (borderUrl.value === url) {
+        borderImage.value = null;
+        borderUrl.value = null;
+        feedback.value = "Couldn't load that border.";
+        setTimeout(() => feedback.value = "", 2500);
+      }
+    });
   });
+
+  const getConfig = (): TokenConfig => {
+    const hasBorder = !!borderUrl.value;
+    return {
+      shape: shape.value,
+      ringColor: ringColor.value,
+      inset: hasBorder ? 0 : inset.value,
+      hairlineEnabled: hairlineEnabled.value,
+      hairlineColor: hairlineColor.value,
+      hexRotation: hexRotation.value,
+      offsetY: offsetY.value,
+      offsetX: offsetX.value,
+      zoom: zoom.value,
+      borderUrl: borderUrl.value,
+      border: borderImage.value,
+    };
+  };
 
   useSignalEffect(() => {
     const canvas = canvasRef.current;
@@ -245,33 +273,42 @@ export default function TokenMaker() {
         />
 
         <section class={`${panel} space-y-6`}>
-          <ShapeSelector shape={shape} />
+          <TokenBorderSelector selected={borderUrl} />
 
-          {shape.value === "hex" && (
-            <RangeControl
-              label="Hex rotation"
-              min={0}
-              max={60}
-              step={1}
-              value={hexRotation.value}
-              formatted={`${hexRotation.value}°`}
-              onChange={(v) => hexRotation.value = v}
-            />
+          {!borderUrl.value && (
+            <>
+              <ShapeSelector shape={shape} />
+
+              {shape.value === "hex" && (
+                <RangeControl
+                  label="Hex rotation"
+                  min={0}
+                  max={60}
+                  step={1}
+                  value={hexRotation.value}
+                  formatted={`${hexRotation.value}°`}
+                  onChange={(v) => hexRotation.value = v}
+                />
+              )}
+
+              <RingColorPicker ringColor={ringColor} />
+
+              <RangeControl
+                label="Ring thickness"
+                min={0}
+                max={25}
+                step={0.5}
+                value={inset.value * 100}
+                formatted={`${Math.round(inset.value * 100)}%`}
+                onChange={(v) => inset.value = v / 100}
+              />
+
+              <HairlineControl
+                enabled={hairlineEnabled}
+                color={hairlineColor}
+              />
+            </>
           )}
-
-          <RingColorPicker ringColor={ringColor} />
-
-          <RangeControl
-            label="Ring thickness"
-            min={0}
-            max={25}
-            step={0.5}
-            value={inset.value * 100}
-            formatted={`${Math.round(inset.value * 100)}%`}
-            onChange={(v) => inset.value = v / 100}
-          />
-
-          <HairlineControl enabled={hairlineEnabled} color={hairlineColor} />
         </section>
       </div>
 
